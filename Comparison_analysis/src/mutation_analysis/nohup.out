@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/work/gutermuth/activityfinderanalysis/src/get_assays_with_variant_sequence.py", line 6, in <module>
+    from mutation_analysis.extract_mutation_data import get_mutations_for_pdb
+  File "/work/gutermuth/activityfinderanalysis/src/mutation_analysis/extract_mutation_data.py", line 3, in <module>
+    from src import definitions
+ModuleNotFoundError: No module named 'src'
