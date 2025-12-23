@@ -1,0 +1,600 @@
+# Justfile for ActivityFinder Analysis
+# Run `just --list` to see available recipes
+# =============================================================================
+# CONFIGURATION - Update these paths to match your local environment
+# =============================================================================
+# Default output directories - change these to your preferred locations
+# Base output directory - commands create subdirectories as needed (figures/, tables/)
+
+output_dir := "./output"
+ligand_reports_dir := "./output/tables"
+figures_dir := "./output/figures"
+ligand_mapping_tables_dir := "./output/tables"
+
+# Environment variable overrides for open-source deployment:
+# - ACTFIND_DB_CREDENTIALS_FILE: Path to shell script that exports DB credentials
+# - ACTFIND_CONFIG_FILE: Path to the app configuration TOML file (default: appconfig.toml)
+
+db_credentials_file := env_var_or_default("ACTFIND_DB_CREDENTIALS_FILE", "")
+config_file := env_var_or_default("ACTFIND_CONFIG_FILE", "appconfig.toml")
+
+# Default recipe - show help
+default:
+    @just --list
+
+# ========================================
+# Ligand Match Level Counts
+# ========================================
+
+ligand-match-level-counts output_dir="./output/tables":
+    #!/usr/bin/env bash
+    echo "🧪 Creating ligand match level count table..."
+    echo "📂 Output directory: {{ output_dir }}"
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        ligand-match-level-counts \
+        --output-dir {{ output_dir }}
+    echo "✅ Ligand match level count table created successfully!"
+
+# -------------------------------------------------------------
+# Activity-qualified Pair Identity Distribution (data pull)
+# (Generates disjoint + cumulative CSV + LaTeX)
+
+# -------------------------------------------------------------
+pair-identity-distribution-activity-data-pull output_dir=ligand_mapping_tables_dir:
+    #!/usr/bin/env bash
+    echo "🧪 Pulling activity-qualified pair identity distribution data (disjoint + cumulative)..."
+    echo "📂 Tables directory: {{ output_dir }}"
+    mkdir -p "{{ output_dir }}"
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        pair-identity-distribution-activity \
+        --output-dir "{{ output_dir }}"
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        pair-identity-distribution-activity \
+        --cumulative \
+        --output-dir "{{ output_dir }}"
+    echo "✅ Pair identity distribution data (CSV + LaTeX) written."
+
+# -------------------------------------------------------------
+# Activity-qualified Pair Identity Distribution (plotting)
+# Produces: disjoint counts+normalized, cumulative counts+normalized, combined 2x2 panel
+
+# -------------------------------------------------------------
+pair-identity-distribution-activity-plots output_dir=figures_dir tables_dir=ligand_mapping_tables_dir:
+    #!/usr/bin/env bash
+    echo "🖼️ Creating pair identity distribution plots (counts + normalized + combined)..."
+    echo "📄 Disjoint CSV: {{ tables_dir }}/pair_identity_distribution_activity.csv"
+    echo "📄 Cumulative CSV: {{ tables_dir }}/pair_identity_distribution_activity_cumulative.csv"
+    echo "🖼  Figures directory: {{ output_dir }}"
+    mkdir -p "{{ output_dir }}"
+    # Disjoint (counts + normalized)
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-pair-identity-distribution-activity \
+        --input "{{ tables_dir }}/pair_identity_distribution_activity.csv" \
+        --output-dir "{{ output_dir }}" \
+        --pdf
+    # Cumulative (counts + normalized)
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-pair-identity-distribution-activity \
+        --input "{{ tables_dir }}/pair_identity_distribution_activity_cumulative.csv" \
+        --output-dir "{{ output_dir }}" \
+        --output-prefix "pair_identity_distribution_activity_cumulative" \
+        --pdf
+    # Combined disjoint vs cumulative (2x2)
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-pair-identity-distribution-activity \
+        --input "{{ tables_dir }}/pair_identity_distribution_activity.csv" \
+        --cumulative-input "{{ tables_dir }}/pair_identity_distribution_activity_cumulative.csv" \
+        --output-dir "{{ output_dir }}" \
+        --output-prefix "pair_identity_distribution_activity" \
+        --combined \
+        --pdf
+    echo "✅ Pair identity distribution plots created."
+
+# ========================================
+# HET Code Variants Plots
+# ========================================
+
+# Create HET code variants plots using default settings
+plot-het:
+    #!/usr/bin/env bash
+    echo "🔬 Creating HET code variants plots..."
+    echo "📂 Output directory: {{ output_dir }}"
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-het-code-variants \
+        --output-dir {{ output_dir }}
+    echo "✅ HET code plots created successfully!"
+
+# ========================================
+# Variant Mutation Plots
+# ========================================
+
+# Create variant mutation plots using default settings
+plot-variant:
+    #!/usr/bin/env bash
+    echo "🧬 Creating variant mutation plots..."
+    echo "📂 Output directory: {{ output_dir }}"
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-variant-mutations \
+        --output-dir {{ output_dir }}
+    echo "✅ Variant mutation plots created successfully!"
+
+# Build stacked bar plot for a single coverage mode from scratch.
+# This recipe creates/refreshes MVs, extracts interval data, and generates the plot.
+#
+# Database connection is read from the config file (default: appconfig.toml).
+# To use a different database (e.g., TEST), create a separate config file
+# (e.g., appconfig_test.toml) and pass it via the app_config parameter.
+#
+# Parameters:
+#   coverage_mode: Coverage mode - one of: full, no-hit, identity-only (default: identity-only)
+#   out_dir:       Output directory for CSV and plots (default: ./artifacts)
+#   app_config:    Path to app config TOML file (default: uses ACTFIND_CONFIG_FILE or appconfig.toml)
+#
+# Example usage:
+#   just sequence-mapping-single-mode                                         # Uses default config, identity-only
+#   just sequence-mapping-single-mode full ./output                           # Full coverage mode
+#   just sequence-mapping-single-mode identity-only ./artifacts appconfig_test.toml  # Use test config
+
+sequence-mapping-single-mode coverage_mode="identity-only" out_dir="./artifacts" app_config=config_file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    dest="{{ out_dir }}"
+    dest="${dest/#\~/$HOME}"
+    mkdir -p "${dest}"
+
+    echo "🎯 SEQUENCE MAPPING SINGLE-MODE PIPELINE"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📋 Config file:   {{ app_config }}"
+    echo "📊 Coverage mode: {{ coverage_mode }}"
+    echo "📂 Output dir:    ${dest}"
+    echo ""
+
+    # Source DB credentials if available (for password via environment variable)
+    if [ -n "{{ db_credentials_file }}" ] && [ -f "{{ db_credentials_file }}" ]; then
+        echo "📥 Sourcing DB credentials from {{ db_credentials_file }}"
+        # shellcheck disable=SC1090
+        . "{{ db_credentials_file }}"
+    fi
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PHASE 1: Create/Refresh Materialized Views
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ PHASE 1: Create/Refresh Materialized Views ━━━"
+
+    # Drop and recreate MVs to ensure latest SQL definitions are applied
+    for mv in mv_alignment_sequence_metrics mv_alignment_sequence_metrics_chain; do
+        echo "▶ Dropping $mv (if exists)..."
+        uv run actfind --app-config {{ app_config }} sql-manager drop "$mv" --force || true
+        echo "▶ Creating $mv..."
+        uv run actfind --app-config {{ app_config }} sql-manager create "$mv"
+    done
+    echo "✅ Phase 1 complete: MVs created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PHASE 2: Generate Interval CSV Data
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ PHASE 2: Generate Interval CSV ({{ coverage_mode }}) ━━━"
+
+    uv run actfind --app-config {{ app_config }} sequence-mapper generate-all \
+        --output-dir "${dest}" \
+        --coverage-modes "{{ coverage_mode }}"
+
+    echo "✅ Phase 2 complete: Interval CSV generated"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # PHASE 3: Create Stacked Bar Plots
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ PHASE 3: Create Stacked Bar Plots ━━━"
+
+    # Convert coverage_mode from hyphenated (identity-only) to underscored (identity_only) for filenames
+    mode_underscore=$(echo "{{ coverage_mode }}" | tr '-' '_')
+    csv_file="${dest}/target_matches_by_sequences_sequence_identity_ranges_${mode_underscore}.csv"
+    png_file="${dest}/target_matching_interval_stacked_bars_${mode_underscore}.png"
+    pdf_file="${dest}/target_matching_interval_stacked_bars_${mode_underscore}.pdf"
+
+    if [ -f "${csv_file}" ]; then
+        echo "▶ Creating PNG plot..."
+        uv run actfind --no-tunnel sequence-mapper plot \
+            --input "${csv_file}" \
+            --output "${png_file}" \
+            --coverage-mode "{{ coverage_mode }}"
+
+        echo "▶ Creating PDF plot..."
+        uv run actfind --no-tunnel sequence-mapper plot \
+            --input "${csv_file}" \
+            --output "${pdf_file}" \
+            --coverage-mode "{{ coverage_mode }}"
+
+        echo "✅ Phase 3 complete: Plots created"
+    else
+        echo "❌ Error: CSV file not found: ${csv_file}"
+        exit 1
+    fi
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🎉 PIPELINE COMPLETE!"
+    echo "   📊 CSV:  ${csv_file}"
+    echo "   🖼  PNG:  ${png_file}"
+    echo "   📄 PDF:  ${pdf_file}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ========================================
+# Amino Acid Mapping
+# ========================================
+# Create amino acid mapping plots (PNG/PDF + CSV summary)
+#
+# The input CSV must contain amino acid mappings from the PDB Chemical Component
+# Dictionary (CCD). This data is NOT generated from the database - it must be
+# obtained externally.
+#
+# Expected CSV format (semicolon-delimited):
+#   "Three Letter Code";"One Letter  Code";"Name"
+#   "ALA";"A";"ALANINE"
+#   "MSE";"M";"SELENOMETHIONINE"
+#
+# Where to obtain the input CSV:
+#   1. PDB Chemical Component Dictionary: https://www.wwpdb.org/data/ccd
+#   2. Filter CCD for amino acid-type components (_chem_comp.type contains "PEPTIDE")
+#   3. Extract columns: mon_id (Three Letter Code), one_letter_code, name
+#
+# Example usage:
+#   just aa-plot ./input/amino_acid_mapping.csv ./artifacts amino_acid_distribution_colored
+
+aa-plot csv_file output_dir="./artifacts" filename="amino_acid_distribution_colored" delimiter=";":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "🧬 AMINO ACID MAPPING PLOT"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📄 CSV file:    {{ csv_file }}"
+    echo "📂 Output dir:  {{ output_dir }}"
+    echo "📄 Filename:    {{ filename }}"
+    echo ""
+
+    # Check if input CSV file exists
+    if [ ! -f "{{ csv_file }}" ]; then
+        echo "❌ ERROR: Input CSV file not found: {{ csv_file }}"
+        echo ""
+        echo "The amino acid mapping CSV must be obtained from an external source."
+        echo "This data comes from the PDB Chemical Component Dictionary (CCD),"
+        echo "NOT from the ActivityFinder database."
+        echo ""
+        echo "To obtain the input CSV:"
+        echo "  1. Download CCD from: https://www.wwpdb.org/data/ccd"
+        echo "  2. Filter for amino acid components (_chem_comp.type contains 'PEPTIDE')"
+        echo "  3. Extract columns: mon_id, one_letter_code, name"
+        echo "  4. Save as semicolon-delimited CSV with headers:"
+        echo '     "Three Letter Code";"One Letter  Code";"Name"'
+        echo ""
+        echo "Example row:"
+        echo '     "ALA";"A";"ALANINE"'
+        exit 1
+    fi
+
+    # Validate CSV has expected headers
+    if ! head -1 "{{ csv_file }}" | grep -qi "three.*letter\|one.*letter"; then
+        echo "⚠️  WARNING: CSV may not have expected headers."
+        echo "   Expected: 'Three Letter Code', 'One Letter  Code', 'Name'"
+        echo "   Found:    $(head -1 '{{ csv_file }}')"
+        echo ""
+    fi
+
+    mkdir -p "{{ output_dir }}"
+
+    echo "▶ Creating amino acid mapping plots..."
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-amino-acid-mapping \
+        --input "{{ csv_file }}" \
+        --output-dir "{{ output_dir }}" \
+        --output-prefix "{{ filename }}" \
+        --delimiter "{{ delimiter }}" \
+        --pdf \
+        --no-show
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🎉 AMINO ACID MAPPING PLOTS CREATED!"
+    echo "   📊 PNG: {{ output_dir }}/{{ filename }}.png"
+    echo "   📄 PDF: {{ output_dir }}/{{ filename }}.pdf"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ========================================
+# Utility Recipes
+# ========================================
+
+# Clean up generated files in default output directory
+clean:
+    #!/usr/bin/env bash
+    echo "🧹 Cleaning up generated files in {{ output_dir }}..."
+    if [ -d "{{ output_dir }}" ]; then
+        rm -f {{ output_dir }}/*het_code* {{ output_dir }}/*variants* {{ output_dir }}/*mutation* {{ output_dir }}/target_matches_by_*
+        echo "✅ Cleanup completed!"
+    else
+        echo "📁 Output directory doesn't exist, nothing to clean"
+    fi
+
+# Clean up files in a specific directory
+clean-dir target_dir:
+    #!/usr/bin/env bash
+    echo "🧹 Cleaning up generated files in {{ target_dir }}..."
+    if [ -d "{{ target_dir }}" ]; then
+        rm -f {{ target_dir }}/*het_code* {{ target_dir }}/*variants* {{ target_dir }}/*mutation* {{ target_dir }}/target_matches_by_*
+        echo "✅ Cleanup completed!"
+    else
+        echo "📁 Target directory doesn't exist, nothing to clean"
+    fi
+
+# Check if required dependencies are available
+check:
+    #!/usr/bin/env bash
+    echo "🔍 Checking dependencies..."
+
+    # Check if uv is available
+    if command -v uv >/dev/null 2>&1; then
+        echo "✅ uv command is available"
+    else
+        echo "❌ uv command not found. Please install uv first."
+        exit 1
+    fi
+
+    # Check if appconfig.toml exists
+    if [ -f "appconfig.toml" ]; then
+        echo "✅ Configuration file found: appconfig.toml"
+    else
+        echo "❌ appconfig.toml not found in project root"
+        echo "   Please create it with database credentials"
+        exit 1
+    fi
+
+    # Test actfind command
+    if uv run actfind --help >/dev/null 2>&1; then
+        echo "✅ actfind command is working"
+    else
+        echo "❌ actfind command not working. Check your uv environment."
+        exit 1
+    fi
+
+    echo "🎉 All checks passed!"
+
+# Show example usage and configuration
+help:
+    @echo "📚 ActivityFinder Analysis Tool"
+    @echo ""
+    @echo "🎯 Available CLI Commands:"
+    @echo "  - pair-identity-distribution-activity"
+    @echo "  - plot-pair-identity-distribution-activity"
+    @echo "  - plot-het-code-variants"
+    @echo "  - plot-variant-mutations"
+    @echo "  - plot-amino-acid-mapping"
+    @echo "  - ligand-match-level-counts"
+    @echo "  - tunnel-status"
+    @echo "  - sql-manager (create, drop, refresh, status, validate, create-all, drop-all, refresh-all-mvs)"
+    @echo "  - sequence-mapper (generate, plot-batch, parity-check)"
+    @echo ""
+    @echo "🎯 Configuration:"
+    @echo "  Output directory: {{ output_dir }}"
+    @echo "  SQL queries are now embedded in Python modules"
+    @echo ""
+    @echo "🏗️  Master Build:"
+    @echo "  just build-all-artifacts            - Build all publication artifacts (recommended)"
+    @echo ""
+    @echo "📊 HET Code Variants Plots:"
+    @echo "  just plot-het                       - Create HET plots with default settings"
+    @echo ""
+    @echo "🧬 Variant Mutation Plots:"
+    @echo "  just plot-variant                   - Create variant plots with default settings"
+    @echo ""
+    @echo "📊 Pair Identity Distribution:"
+    @echo "  just pair-identity-distribution-activity-data-pull [DIR]"
+    @echo "  just pair-identity-distribution-activity-plots [FIGS_DIR] [TABLES_DIR]"
+    @echo ""
+    @echo "🔬 Sequence Mapping:"
+    @echo "  just sequence-mapping-single-mode [MODE] [DIR] [CONFIG]"
+    @echo ""
+    @echo "🧬 Amino Acid Mapping:"
+    @echo "  just aa-plot CSV_FILE [DIR] [NAME]  - Create amino acid mapping plots"
+    @echo ""
+    @echo "🛠️  Utilities:"
+    @echo "  just clean                          - Remove generated files from default directory"
+    @echo "  just clean-dir DIR                  - Remove generated files from specific directory"
+    @echo "  just check                          - Check dependencies and configuration"
+    @echo "  just config                         - Show current configuration"
+    @echo "  just quickstart                     - Quick setup for new users"
+    @echo ""
+    @echo "🚀 Quick examples:"
+    @echo "  just build-all-artifacts            # Build everything for publication"
+    @echo "  just plot-het                       # HET code variants only"
+    @echo "  just plot-variant                   # Variant mutations only"
+    @echo ""
+    @echo "📋 Prerequisites:"
+    @echo "  - uv installed and configured"
+    @echo "  - appconfig.toml file with database credentials in project root"
+    @echo "  - Access to ActivityFinder PostgreSQL database"
+
+# Quick start recipe for new users
+quickstart:
+    #!/usr/bin/env bash
+    echo "🚀 Quick start setup..."
+
+    # Check for sample configs
+    het_sample="activity_db_analysis/apps/het_code_plot/appconfig_sample.toml"
+    variant_sample="activity_db_analysis/apps/variant_mutation_plot/appconfig_sample.toml"
+
+    if [ -f "$het_sample" ] || [ -f "$variant_sample" ]; then
+        if [ ! -f "appconfig.toml" ]; then
+            echo "📋 Copying sample configuration to project root..."
+            if [ -f "$het_sample" ]; then
+                cp "$het_sample" appconfig.toml
+            elif [ -f "$variant_sample" ]; then
+                cp "$variant_sample" appconfig.toml
+            fi
+            echo "⚠️  Please edit appconfig.toml with your database credentials before running plots"
+        else
+            echo "✅ Configuration file already exists: appconfig.toml"
+        fi
+    else
+        echo "⚠️  Sample config not found, please create appconfig.toml manually"
+    fi
+
+    echo "🔍 Running dependency check..."
+    just check
+
+    echo ""
+    echo "🎯 Next steps:"
+    echo "  1. Edit appconfig.toml with your database credentials"
+    echo "  2. Update output directory in justfile if needed (current: {{ output_dir }})"
+    echo "  3. Run 'just plot-all' to create all plots"
+    echo "  4. Or run 'just plot-het' or 'just plot-variant' for specific plot types"
+
+# Show current configuration
+config:
+    @echo "🔧 Current Configuration:"
+    @echo "  Output directory: {{ output_dir }}"
+    @echo "  SQL queries: Embedded in Python modules"
+    @echo "  Project root: $(pwd)"
+    @echo ""
+    @echo "📁 Key files:"
+    @echo "  appconfig.toml: $(if [ -f appconfig.toml ]; then echo '✅ exists'; else echo '❌ missing'; fi)"
+    @echo "  het_code_sql.py: $(if [ -f activity_db_analysis/apps/het_code_plot/het_code_sql.py ]; then echo '✅ exists'; else echo '❌ missing'; fi)"
+    @echo "  variant_mutation_sql.py: $(if [ -f activity_db_analysis/apps/variant_mutation_plot/variant_mutation_sql.py ]; then echo '✅ exists'; else echo '❌ missing'; fi)"
+
+# ========================================
+# Master Build Recipe - Build All 6 Publication Artifacts
+# ========================================
+# Generates all 6 publication artifacts defined in desired_artifacts.txt:
+#   1. amino_acid_distribution_colored (requires external CSV)
+#   2. mutation_distribution_plot
+#   3. variants_per_het_code_histogram
+#   4. target_matching_interval_stacked_bars_identity_only
+#   5. ligand_match_levels.tex
+#   6. pair_identity_distribution_activity_combined_panel
+#
+# Parameters:
+#   out_dir: Output directory for all artifacts (default: ./artifacts)
+#   aa_csv: Path to amino acid mapping CSV from PDB CCD (optional - skips if not provided)
+#
+# Example usage:
+#   just build-all-artifacts ./artifacts
+#   just build-all-artifacts ./artifacts ../../activityFinderAnalysis/examples/amino_acid_mapping.csv
+
+build-all-artifacts out_dir="./artifacts" aa_csv="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    dest="{{ out_dir }}"
+    dest="${dest/#\~/$HOME}"
+    mkdir -p "${dest}"
+
+    # Source DB credentials if available
+    if [ -n "{{ db_credentials_file }}" ] && [ -f "{{ db_credentials_file }}" ]; then
+        echo "📥 Sourcing DB credentials from {{ db_credentials_file }}"
+        . "{{ db_credentials_file }}"
+    fi
+
+    echo "🏗️  BUILD ALL 6 PUBLICATION ARTIFACTS"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📂 Output directory: ${dest}"
+    echo ""
+    echo "Artifacts to build:"
+    echo "  1. amino_acid_distribution_colored"
+    echo "  2. mutation_distribution_plot"
+    echo "  3. variants_per_het_code_histogram"
+    echo "  4. target_matching_interval_stacked_bars_identity_only"
+    echo "  5. ligand_match_levels.tex"
+    echo "  6. pair_identity_distribution_activity_combined_panel"
+    echo ""
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 1: amino_acid_distribution_colored
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [1/6] amino_acid_distribution_colored ━━━"
+    if [ -n "{{ aa_csv }}" ] && [ -f "{{ aa_csv }}" ]; then
+        echo "▶ Creating amino acid distribution plot from {{ aa_csv }}..."
+        just aa-plot "{{ aa_csv }}" "${dest}" amino_acid_distribution_colored
+        echo "✅ amino_acid_distribution_colored created"
+    else
+        echo "⚠️  SKIPPED: No amino acid CSV provided or file not found."
+        echo "   To include this artifact, provide the aa_csv parameter:"
+        echo "   just build-all-artifacts ${dest} /path/to/amino_acid_mapping.csv"
+    fi
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 2: mutation_distribution_plot
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [2/6] mutation_distribution_plot ━━━"
+    echo "▶ Creating variant mutation plot..."
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-variant-mutations \
+        --output-dir "${dest}"
+    # Copy from subdirectory to main output
+    if [ -f "${dest}/figures/mutation_distribution_plot.png" ]; then
+        cp "${dest}/figures/mutation_distribution_plot.png" "${dest}/" 2>/dev/null || true
+        cp "${dest}/figures/mutation_distribution_plot.pdf" "${dest}/" 2>/dev/null || true
+    fi
+    echo "✅ mutation_distribution_plot created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 3: variants_per_het_code_histogram
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [3/6] variants_per_het_code_histogram ━━━"
+    echo "▶ Creating HET code variants histogram..."
+    uv run actfind --app-config {{ config_file }} --logging-level INFO \
+        plot-het-code-variants \
+        --output-dir "${dest}"
+    # Copy from subdirectory to main output
+    if [ -f "${dest}/figures/variants_per_het_code_histogram.png" ]; then
+        cp "${dest}/figures/variants_per_het_code_histogram.png" "${dest}/" 2>/dev/null || true
+        cp "${dest}/figures/variants_per_het_code_histogram.pdf" "${dest}/" 2>/dev/null || true
+    fi
+    echo "✅ variants_per_het_code_histogram created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 4: target_matching_interval_stacked_bars_identity_only
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [4/6] target_matching_interval_stacked_bars_identity_only ━━━"
+    echo "▶ Creating sequence mapping stacked bars (identity-only mode)..."
+    just sequence-mapping-single-mode identity-only "${dest}"
+    echo "✅ target_matching_interval_stacked_bars_identity_only created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 5: ligand_match_levels.tex
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [5/6] ligand_match_levels.tex ━━━"
+    echo "▶ Creating ligand match levels table..."
+    just ligand-match-level-counts "${dest}"
+    echo "✅ ligand_match_levels.tex created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ARTIFACT 6: pair_identity_distribution_activity_combined_panel
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━ [6/6] pair_identity_distribution_activity_combined_panel ━━━"
+    echo "▶ Pulling pair identity distribution data..."
+    just pair-identity-distribution-activity-data-pull "${dest}"
+    echo "▶ Creating pair identity distribution plots..."
+    just pair-identity-distribution-activity-plots "${dest}" "${dest}"
+    echo "✅ pair_identity_distribution_activity_combined_panel created"
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🎉 BUILD COMPLETE!"
+    echo ""
+    echo "Generated artifacts in ${dest}:"
+    ls -la "${dest}"/*.png "${dest}"/*.tex "${dest}"/*.pdf 2>/dev/null || true
+    echo ""
+    if [ -z "{{ aa_csv }}" ]; then
+        echo "⚠️  Note: amino_acid_distribution_colored was skipped (no CSV provided)"
+    fi
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

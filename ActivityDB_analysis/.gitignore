@@ -1,0 +1,85 @@
+# ===========================
+# Python Byte-compiled / Optimized
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ===========================
+# Distribution / Packaging
+# ===========================
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
+# ===========================
+# Testing / Coverage
+# ===========================
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.hypothesis/
+coverage.xml
+*.cover
+*.py,cover
+.tox/
+.nox/
+
+# ===========================
+# Type Checkers
+# ===========================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ===========================
+# Linters / Formatters
+# ===========================
+.ruff_cache/
+
+# ===========================
+# Documentation
+# ===========================
+docs/_build/
+site/
+
+# ===========================
+# Virtual Environments
+# ===========================
+.venv/
+venv/
+ENV/
+env/
+.uv/
+
+# ===========================
+# IDE / Editors
+# ===========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+Thumbs.db
+
+# ===========================
+# Jupyter
+# ===========================
+.ipynb_checkpoints/
+
+# ===========================
+# Project-specific
+# ===========================
+appconfig.toml

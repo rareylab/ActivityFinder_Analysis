@@ -1,0 +1,44 @@
+# Sample configuration file for ChEMBL Variant Mutation Analysis
+# Copy this file to appconfig.toml and update with your database credentials
+
+[chembl_database]
+# ChEMBL database connection parameters
+name = "chembl"
+user = "your_chembl_user"
+# password: set via CHEMBL_PWD environment variable (never store in config)
+host = "127.0.0.1"
+port = 5433
+schema = "public"
+
+# Optional SSH tunnel configuration
+# Uncomment and configure if you need to connect through an SSH tunnel
+# ssh_host_alias = "your_ssh_alias"  # SSH alias from ~/.ssh/config
+# ssh_remote_host = "your.database.server.example.com"  # Remote database host
+
+[activity_finder_database]
+# Activity Finder database connection parameters (for other analyses)
+name = "your_database_name"
+user = "your_database_user"
+# password: set via environment variable (e.g., ACTIVITY_DB_PRODUCTION_PWD)
+host = "127.0.0.1"
+port = 5433
+# Optional SSH tunnel configuration
+# ssh_host_alias = "your_ssh_alias"
+# ssh_remote_host = "your.database.server.example.com"
+
+[input]
+# Input file paths for various analyses
+# directory = "./input_data"
+
+[output]
+# Default output directory for results
+# directory = "./output_results"
+
+# Example SSH configuration in ~/.ssh/config:
+# Host your_ssh_alias
+#     HostName your.jump.host.example.com
+#     User your_username
+#     Port 22
+#     IdentityFile ~/.ssh/your_key
+#     # Optional: ProxyJump if needed
+#     # ProxyJump intermediate_host
